@@ -8,6 +8,8 @@ const CMD_MEASURE: [u8; 3] = [0xAC, 0x33, 0x00];
 const STATUS_BUSY_BIT: u8 = 0x80;
 const STATUS_CAL_BIT: u8 = 0x08;
 
+const RESOLUTION_20_BIT: f32 = 1048576.0;
+
 #[derive(Debug)]
 pub enum Aht10Error<E> {
     I2c(E),
@@ -20,6 +22,7 @@ pub struct Aht10<I2C> {
     addr: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measurement {
     pub temperature_c: f32,
     pub hum_percent: f32,
@@ -31,7 +34,7 @@ where
 {
     pub fn new(i2c: I2C) -> Self {
         Self {
-            i2c: i2c,
+            i2c,
             addr: AHT10_ADDR,
         }
     }
@@ -46,7 +49,9 @@ where
 
         let status: u8 = self.read_status()?;
         if status & STATUS_CAL_BIT == 0 {
-            self.i2c.write(self.addr, &CMD_INIT).map_err(Aht10Error)?;
+            self.i2c
+                .write(self.addr, &CMD_INIT)
+                .map_err(Aht10Error::I2c)?;
             delay.delay_ms(10);
         }
 
@@ -73,8 +78,35 @@ where
         delay.delay_ms(80);
 
         let mut buf: [u8; 6] = [0u8; 6];
-        for _ in 0..10 {}
+        let mut been_read: bool = false;
+        for _ in 0..10 {
+            self.i2c
+                .read(self.addr, &mut buf)
+                .map_err(Aht10Error::I2c)?;
 
-        todo!()
+            if buf[0] & STATUS_BUSY_BIT == 0 {
+                been_read = true;
+                break;
+            }
+
+            delay.delay_ms(10);
+        }
+
+        if !been_read {
+            return Err(Aht10Error::Timeout);
+        }
+
+        let raw_hum: u32 =
+            ((buf[1] as u32) << 12) | ((buf[2] as u32) << 4) | ((buf[3] as u32) >> 4);
+        let raw_temp: u32 =
+            (((buf[3] as u32) & 0xf) << 16) | ((buf[4] as u32) << 8) | (buf[5] as u32);
+
+        let humidty: f32 = (raw_hum as f32 / RESOLUTION_20_BIT) * 100.0;
+        let temperature: f32 = ((raw_temp as f32 / RESOLUTION_20_BIT) * 200.0) - 50.0;
+
+        Ok(Measurement {
+            hum_percent: humidty,
+            temperature_c: temperature,
+        })
     }
 }

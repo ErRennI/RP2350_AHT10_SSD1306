@@ -6,14 +6,22 @@ mod aht10;
 // Write my own panic handler
 use core::panic::PanicInfo;
 
+// Share i2c bus
+use core::cell::RefCell;
+use embedded_hal_bus::i2c::RefCellDevice;
+
 use embedded_hal::i2c::I2c;
 
 //Alias
 use rp235x_hal::{
-    self as hal, Watchdog,
+    self as hal, Sio, Watchdog,
     clocks::ClocksManager,
     fugit::RateExtU32,
-    pac::{I2C1, Peripherals},
+    gpio::{
+        FunctionI2C, Pin, Pins, PullUp,
+        bank0::{Gpio4, Gpio5},
+    },
+    pac::Peripherals,
 };
 
 #[panic_handler]
@@ -31,12 +39,17 @@ const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
 // Main entry point
 #[hal::entry]
 fn main() -> ! {
-    let mut pac: Peripherals = hal::pac::Peripherals::take().unwrap();
+    let mut pac: Peripherals = match hal::pac::Peripherals::take() {
+        Some(c) => c,
+        None => {
+            cortex_m::peripheral::SCB::sys_reset();
+        }
+    };
     // Fast gpio
-    let sio: Sio = hal::Sio::new(pac.SIO);
+    let sio: Sio = Sio::new(pac.SIO);
 
     let mut watchdog: Watchdog = hal::Watchdog::new(pac.WATCHDOG);
-    let clocks: ClocksManager = hal::clocks::init_clocks_and_plls(
+    let clocks: ClocksManager = match hal::clocks::init_clocks_and_plls(
         XOSC_CRYSTAL_FREQ,
         pac.XOSC,
         pac.CLOCKS,
@@ -44,31 +57,36 @@ fn main() -> ! {
         pac.PLL_USB,
         &mut pac.RESETS,
         &mut watchdog,
-    )
-    .ok()
-    .unwrap();
+    ) {
+        Ok(c) => c,
+        Err(_) => {
+            cortex_m::peripheral::SCB::sys_reset();
+        }
+    };
 
-    let pins: Pins = hal::gpio::Pins::new(
+    let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
+
+    let pins: Pins = Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
 
-    let sda_sensor: hal::gpio::Pin<Gpio4, hal::gpio::FunctionI2C, hal::gpio::PullUp> =
-        pins.gpio4.reconfigure();
+    let sda_sensor: Pin<Gpio4, FunctionI2C, PullUp> = pins.gpio4.reconfigure();
 
-    let scl_sensor: hal::gpio::Pin<Gpio5, hall::gpio::FunctionI2C, hal::gpio::PullUp> =
-        pins.gpio5.reconfigure();
+    let scl_sensor: Pin<Gpio5, FunctionI2C, PullUp> = pins.gpio5.reconfigure();
 
-    let mut i2c = hal::I2C::i2c1(
-        pac.I2C1,
+    let i2c = hal::I2C::i2c0(
+        pac.I2C0,
         sda_sensor,
         scl_sensor,
         400.kHz(),
         &mut pac.RESETS,
         &clocks.system_clock,
     );
+
+    let i2c_bus = RefCell::new(i2c);
 
     loop {}
 }
