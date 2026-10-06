@@ -2,6 +2,7 @@
 #![no_main]
 
 mod aht10;
+mod oled1306;
 
 // Write my own panic handler
 use core::panic::PanicInfo;
@@ -10,7 +11,10 @@ use core::panic::PanicInfo;
 use core::cell::RefCell;
 use embedded_hal_bus::i2c::RefCellDevice;
 
-use embedded_hal::i2c::I2c;
+use embedded_hal::{
+    delay::{self, DelayNs},
+    i2c::I2c,
+};
 
 //Alias
 use rp235x_hal::{
@@ -23,6 +27,8 @@ use rp235x_hal::{
     },
     pac::Peripherals,
 };
+
+use crate::aht10::{Aht10, Aht10Error, Measurement};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -88,5 +94,37 @@ fn main() -> ! {
 
     let i2c_bus = RefCell::new(i2c);
 
-    loop {}
+    let mut aht10 = Aht10::new(RefCellDevice::new(&i2c_bus));
+    match aht10.init(&mut timer) {
+        Ok(_) => (),
+        Err(Aht10Error::NotCalibrated) => {
+            timer.delay_ms(50);
+
+            if aht10.init(&mut timer).is_err() {
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+        }
+        Err(_) => {
+            cortex_m::peripheral::SCB::sys_reset();
+        }
+    }
+
+    let mut i2c_error_count: u8 = 0;
+    loop {
+        let measurement: Measurement = match aht10.read(&mut timer) {
+            Ok(measurement) => measurement,
+            Err(Aht10Error::I2c(_)) => {
+                i2c_error_count += 1;
+                if i2c_error_count >= 5 {
+                    cortex_m::peripheral::SCB::sys_reset();
+                }
+                continue;
+            }
+            Err(_) => {
+                continue;
+            }
+        };
+
+        timer.delay_ms(1000);
+    }
 }
