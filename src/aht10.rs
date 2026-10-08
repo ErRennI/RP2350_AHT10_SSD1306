@@ -17,15 +17,15 @@ pub enum Aht10Error<E> {
     Timeout,
 }
 
-pub struct Aht10<I2C> {
-    i2c: I2C,
-    addr: u8,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measurement {
     pub temperature_c: f32,
     pub hum_percent: f32,
+}
+
+pub struct Aht10<I2C> {
+    i2c: I2C,
+    addr: u8,
 }
 
 impl<I2C, E> Aht10<I2C>
@@ -55,7 +55,7 @@ where
             delay.delay_ms(10);
         }
 
-        let status = self.read_status()?;
+        let status: u8 = self.read_status()?;
         if status & STATUS_CAL_BIT == 0 {
             return Err(Aht10Error::NotCalibrated);
         }

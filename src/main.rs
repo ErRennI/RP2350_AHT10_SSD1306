@@ -2,7 +2,7 @@
 #![no_main]
 
 mod aht10;
-mod oled1306;
+mod ssd1306;
 
 // Write my own panic handler
 use core::panic::PanicInfo;
