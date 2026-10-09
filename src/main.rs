@@ -17,8 +17,9 @@ use embedded_hal::{
 };
 
 //Alias
+use rp235x_hal as hal;
 use rp235x_hal::{
-    self as hal, Sio, Watchdog,
+    Sio, Watchdog,
     clocks::ClocksManager,
     fugit::RateExtU32,
     gpio::{

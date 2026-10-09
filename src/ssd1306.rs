@@ -1,3 +1,11 @@
+use core::convert::Infallible;
+
+use embedded_graphics::{
+    draw_target::DrawTarget,
+    geometry::OriginDimensions,
+    pixelcolor::BinaryColor,
+    prelude::{Pixel, Size},
+};
 use embedded_hal::i2c::I2c;
 
 pub const SSD1306_ADDR: u8 = 0x3C;
@@ -74,5 +82,29 @@ where
                 .map_err(Ssd1306Error::I2c)?;
         }
         Ok(())
+    }
+}
+
+impl<I2C> OriginDimensions for Ssd1306<I2C> {
+    fn size(&self) -> Size {
+        Size::new(WIDTH as u32, HEIGHT as u32)
+    }
+}
+
+impl<I2C> DrawTarget for Ssd1306<I2C> {
+    type Color = BinaryColor;
+    type Error = Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        for Pixel(point, color) in pixels {
+            if point.x < 0 || point.x >= WIDTH as i32 || point.y < 0 || point.y >= HEIGHT as i32 {
+                continue;
+            }
+        }
+
+        todo!()
     }
 }
