@@ -1,10 +1,12 @@
 use core::convert::Infallible;
 
+// If you are using embeded_graphics_core add "_core" to the end of embeded_graphics
 use embedded_graphics::{
     draw_target::DrawTarget,
-    geometry::OriginDimensions,
+    geometry::{Dimensions, OriginDimensions},
     pixelcolor::BinaryColor,
     prelude::{Pixel, Size},
+    primitives::Rectangle,
 };
 use embedded_hal::i2c::I2c;
 
@@ -56,9 +58,11 @@ where
     }
 
     fn cmd(&mut self, cmds: &[u8]) -> Result<(), Ssd1306Error<E>> {
-        for &c in cmds {
+        let mut pckt: [u8; 33] = [0u8; 33];
+        for chunk in cmds.chunks(32) {
+            pckt[1..=chunk.len()].copy_from_slice(chunk);
             self.i2c
-                .write(SSD1306_ADDR, &[0x00, c])
+                .write(self.addr, &pckt[..=chunk.len()])
                 .map_err(Ssd1306Error::I2c)?;
         }
         Ok(())
@@ -78,7 +82,7 @@ where
             pckt[1..(1 + chunk.len())].copy_from_slice(chunk);
 
             self.i2c
-                .write(SSD1306_ADDR, &pckt)
+                .write(self.addr, &pckt)
                 .map_err(Ssd1306Error::I2c)?;
         }
         Ok(())
@@ -103,8 +107,53 @@ impl<I2C> DrawTarget for Ssd1306<I2C> {
             if point.x < 0 || point.x >= WIDTH as i32 || point.y < 0 || point.y >= HEIGHT as i32 {
                 continue;
             }
+
+            let index: usize = point.x as usize + (point.y as usize / 8) * WIDTH;
+            let bit: u8 = 1 << (point.y % 8) as u8;
+            match color {
+                BinaryColor::On => self.buf[index] |= bit,
+                BinaryColor::Off => self.buf[index] &= !bit,
+            };
         }
 
-        todo!()
+        Ok(())
+    }
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        match color {
+            BinaryColor::On => self.buf.fill(0xFF),
+            BinaryColor::Off => self.buf.fill(0x00),
+        }
+
+        Ok(())
+    }
+
+    fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
+        let drawable_area: Rectangle = area.intersection(&self.bounding_box());
+
+        if drawable_area.is_zero_sized() {
+            return Ok(());
+        }
+
+        let x_start: usize = drawable_area.top_left.x as usize;
+        let x_end: usize = x_start + drawable_area.size.width as usize;
+        let y_start: usize = drawable_area.top_left.y as usize;
+        let y_end: usize = y_start + drawable_area.size.height as usize;
+
+        for page in (y_start / 8)..=((y_end - 1) / 8) {
+            let page_top: usize = page * 8;
+            let first: usize = y_start.max(page_top) - page_top;
+            let last: usize = y_end.min(page_top + 8) - page_top;
+            let mask: u8 = (0xFF << first) & (0xFF >> (8 - last));
+
+            for x in x_start..x_end {
+                let index: usize = x + page * WIDTH;
+
+                match color {
+                    BinaryColor::On => self.buf[index] |= mask,
+                    BinaryColor::Off => self.buf[index] &= !mask,
+                }
+            }
+        }
+        Ok(())
     }
 }

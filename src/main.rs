@@ -5,23 +5,29 @@ mod aht10;
 mod ssd1306;
 
 // Write my own panic handler
+use core::fmt::Write;
 use core::panic::PanicInfo;
 
 // Share i2c bus
 use core::cell::RefCell;
+use embedded_graphics::{
+    Drawable,
+    draw_target::DrawTarget,
+    geometry::Point,
+    mono_font::{MonoTextStyle, ascii::FONT_6X10},
+    pixelcolor::BinaryColor,
+    text::Text,
+};
 use embedded_hal_bus::i2c::RefCellDevice;
 
-use embedded_hal::{
-    delay::{self, DelayNs},
-    i2c::I2c,
-};
+use embedded_hal::delay::DelayNs;
 
 //Alias
 use rp235x_hal as hal;
 use rp235x_hal::{
     Sio, Watchdog,
     clocks::ClocksManager,
-    fugit::RateExtU32,
+    fugit::{ExtU32, RateExtU32},
     gpio::{
         FunctionI2C, Pin, Pins, PullUp,
         bank0::{Gpio4, Gpio5},
@@ -29,7 +35,11 @@ use rp235x_hal::{
     pac::Peripherals,
 };
 
-use crate::aht10::{Aht10, Aht10Error, Measurement};
+use crate::ssd1306::Ssd1306Error;
+use crate::{
+    aht10::{Aht10, Aht10Error, Measurement},
+    ssd1306::Ssd1306,
+};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -71,6 +81,8 @@ fn main() -> ! {
         }
     };
 
+    watchdog.start(2000.millis());
+
     let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
     let pins: Pins = Pins::new(
@@ -110,8 +122,24 @@ fn main() -> ! {
         }
     }
 
+    let mut ssd1306 = Ssd1306::new(RefCellDevice::new(&i2c_bus));
+    match ssd1306.init() {
+        Ok(_) => (),
+        Err(_) => {
+            timer.delay_ms(50);
+            if ssd1306.init().is_err() {
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+        }
+    };
+
+    let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let mut text: heapless::String<20> = heapless::String::new();
+
     let mut i2c_error_count: u8 = 0;
+
     loop {
+        watchdog.feed();
         let measurement: Measurement = match aht10.read(&mut timer) {
             Ok(measurement) => measurement,
             Err(Aht10Error::I2c(_)) => {
@@ -119,13 +147,44 @@ fn main() -> ! {
                 if i2c_error_count >= 5 {
                     cortex_m::peripheral::SCB::sys_reset();
                 }
+                timer.delay_ms(50);
                 continue;
             }
             Err(_) => {
+                timer.delay_ms(50);
                 continue;
             }
         };
 
-        timer.delay_ms(1000);
+        let t: i32 = (measurement.temperature_c * 10.0) as i32;
+        let h: i32 = (measurement.hum_percent * 10.0) as i32;
+        ssd1306.clear(BinaryColor::Off).ok();
+
+        text.clear();
+        write!(text, "Temp: {}.{} C", t / 10, (t % 10).abs()).ok();
+        Text::new(&text, Point::new(10, 10), style)
+            .draw(&mut ssd1306)
+            .ok();
+
+        text.clear();
+        write!(text, "Hum: {}.{} %", h / 10, h % 10).ok();
+        Text::new(&text, Point::new(10, 24), style)
+            .draw(&mut ssd1306)
+            .ok();
+
+        match ssd1306.flush() {
+            Ok(()) => (),
+            Err(Ssd1306Error::I2c(_)) => {
+                i2c_error_count += 1;
+                if i2c_error_count >= 5 {
+                    cortex_m::peripheral::SCB::sys_reset();
+                }
+                timer.delay_ms(50);
+                continue;
+            }
+        };
+
+        i2c_error_count = 0;
+        timer.delay_ms(500);
     }
 }
