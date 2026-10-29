@@ -160,8 +160,11 @@ fn main() -> ! {
         let h: i32 = (measurement.hum_percent * 10.0) as i32;
         ssd1306.clear(BinaryColor::Off).ok();
 
+        let sign: &str = if t < 0 { "-" } else { "" };
+        let t_abs: i32 = t.abs();
+
         text.clear();
-        write!(text, "Temp: {}.{} C", t / 10, (t % 10).abs()).ok();
+        write!(text, "Temp: {}{}.{} C", sign, t_abs / 10, t_abs % 10).ok();
         Text::new(&text, Point::new(10, 10), style)
             .draw(&mut ssd1306)
             .ok();
