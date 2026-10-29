@@ -2,7 +2,7 @@
 
 Bare-metal Rust firmware for the RP2350 that reads temperature and humidity from an AHT10 sensor and shows the readings on an SSD1306 OLED display. Both device drivers are written from scratch against the `embedded-hal` I2C trait.
 
-
+<img width="600" alt="RP2350 with AHT10 sensor and SSD1306 display showing temperature and humidity" src="https://github.com/user-attachments/assets/40fdac1a-bc5a-4c6b-8893-1ef074d68255" />
 
 ## Features
 
